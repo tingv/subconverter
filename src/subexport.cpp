@@ -677,7 +677,7 @@ void netchToClash(std::vector<nodeInfo> &nodes, YAML::Node &yamlnode, string_arr
 
         type = GetMember(json, "Type");
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), x.remarks) > 0)
             x.remarks += "$";
@@ -928,6 +928,7 @@ std::string netchToSurge(std::vector<nodeInfo> &nodes, std::string &base_conf, s
     ini.store_any_line = true;
     // filter out sections that requires direct-save
     ini.AddDirectSaveSection("Rule");
+    ini.AddDirectSaveSection("MITM");
     ini.AddDirectSaveSection("Script");
     ini.AddDirectSaveSection("URL Rewrite");
     ini.AddDirectSaveSection("Header Rewrite");
@@ -962,7 +963,7 @@ std::string netchToSurge(std::vector<nodeInfo> &nodes, std::string &base_conf, s
         type = GetMember(json, "Type");
 
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
         remark = x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), x.remarks) > 0)
@@ -1415,11 +1416,13 @@ std::string netchToQuan(std::vector<nodeInfo> &nodes, std::string &base_conf, st
     if(ext.nodelist)
     {
         string_array allnodes;
+        std::string allLinks;
         ini.GetAll("SERVER", "{NONAME}", allnodes);
-        std::string allLinks = std::accumulate(std::next(allnodes.begin()), allnodes.end(), allnodes[0], [](std::string a, std::string b)
-        {
-            return std::move(a) + "\n" + std::move(b);
-        });
+        if(allnodes.size())
+            allLinks = std::accumulate(std::next(allnodes.begin()), allnodes.end(), allnodes[0], [](std::string a, std::string b)
+            {
+                return std::move(a) + "\n" + std::move(b);
+            });
         return base64_encode(allLinks);
     }
     return ini.ToString();
@@ -1464,7 +1467,7 @@ void netchToQuan(std::vector<nodeInfo> &nodes, INIReader &ini, std::vector<rules
         type = GetMember(json, "Type");
 
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), x.remarks) > 0)
             x.remarks += "$";
@@ -1639,11 +1642,13 @@ std::string netchToQuanX(std::vector<nodeInfo> &nodes, std::string &base_conf, s
     if(ext.nodelist)
     {
         string_array allnodes;
+        std::string allLinks;
         ini.GetAll("server_local", "{NONAME}", allnodes);
-        std::string allLinks = std::accumulate(std::next(allnodes.begin()), allnodes.end(), allnodes[0], [](std::string a, std::string b)
-        {
-            return std::move(a) + "\n" + std::move(b);
-        });
+        if(allnodes.size())
+            allLinks = std::accumulate(std::next(allnodes.begin()), allnodes.end(), allnodes[0], [](std::string a, std::string b)
+            {
+                return std::move(a) + "\n" + std::move(b);
+            });
         return allLinks;
     }
     return ini.ToString();
@@ -1688,7 +1693,7 @@ void netchToQuanX(std::vector<nodeInfo> &nodes, INIReader &ini, std::vector<rule
         type = GetMember(json, "Type");
 
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), x.remarks) > 0)
             x.remarks += "$";
@@ -2079,7 +2084,7 @@ void netchToMellow(std::vector<nodeInfo> &nodes, INIReader &ini, std::vector<rul
         type = GetMember(json, "Type");
 
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
         remark = x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), remark) > 0)
@@ -2250,7 +2255,7 @@ std::string netchToLoon(std::vector<nodeInfo> &nodes, std::string &base_conf, st
         type = GetMember(json, "Type");
 
         if(ext.append_proxy_type)
-            x.remarks = "[" + type + "]" + x.remarks;
+            x.remarks = "[" + type + "] " + x.remarks;
         remark = x.remarks;
 
         while(std::count(remarks_list.begin(), remarks_list.end(), x.remarks) > 0)

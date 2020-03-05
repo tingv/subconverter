@@ -18,7 +18,6 @@
 
 //common settings
 std::string pref_path = "pref.ini";
-bool generator_mode = false;
 string_array def_exclude_remarks, def_include_remarks, rulesets, stream_rules, time_rules;
 std::vector<ruleset_content> ruleset_content_array;
 std::string listen_address = "127.0.0.1", default_url, insert_url, managed_config_prefix;
@@ -27,6 +26,10 @@ bool api_mode = true, write_managed_config = false, enable_rule_generator = true
 bool print_debug_info = false, cfw_child_process = false, append_userinfo = true, enable_base_gen = false;
 std::string access_token;
 extern std::string custom_group;
+
+//generator settings
+bool generator_mode = false;
+std::string gen_profile;
 
 //multi-thread lock
 std::mutex on_configuring;
@@ -415,13 +418,13 @@ void readYAMLConf(YAML::Node &node)
         section = node["userinfo"];
         if(section["stream_rule"].IsSequence())
         {
-            readRegexMatch(section["stream_rule"], "@", tempArray);
+            readRegexMatch(section["stream_rule"], "|", tempArray);
             safe_set_streams(tempArray);
             eraseElements(tempArray);
         }
         if(section["time_rule"].IsSequence())
         {
-            readRegexMatch(section["time_rule"], "@", tempArray);
+            readRegexMatch(section["time_rule"], "|", tempArray);
             safe_set_times(tempArray);
             eraseElements(tempArray);
         }
@@ -901,7 +904,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     std::string append_type = getUrlArg(argument, "append_type"), tfo = getUrlArg(argument, "tfo"), udp = getUrlArg(argument, "udp"), nodelist = getUrlArg(argument, "list");
     std::string include = UrlDecode(getUrlArg(argument, "include")), exclude = UrlDecode(getUrlArg(argument, "exclude")), sort_flag = getUrlArg(argument, "sort");
     std::string scv = getUrlArg(argument, "scv"), fdn = getUrlArg(argument, "fdn"), expand = getUrlArg(argument, "expand"), append_sub_userinfo = getUrlArg(argument, "append_info");
-    std::string dev_id = getUrlArg(argument, "dev_id"), filename = UrlDecode(getUrlArg(argument, "filename")), interval_str = getUrlArg(argument, "interval"), strict_str = getUrlArg(argument, "strict");
+    std::string dev_id = getUrlArg(argument, "dev_id"), filename = getUrlArg(argument, "filename"), interval_str = getUrlArg(argument, "interval"), strict_str = getUrlArg(argument, "strict");
     std::string base_content, output_content;
     string_array extra_group, extra_ruleset, include_remarks, exclude_remarks;
     std::string groups = urlsafe_base64_decode(getUrlArg(argument, "groups")), ruleset = urlsafe_base64_decode(getUrlArg(argument, "ruleset")), config = UrlDecode(getUrlArg(argument, "config"));
@@ -1694,29 +1697,111 @@ std::string getRewriteRemote(RESPONSE_CALLBACK_ARGS)
     return output_content;
 }
 
+static inline std::string intToStream(unsigned long long stream)
+{
+    char chrs[16] = {};
+    double streamval = stream;
+    int level = 0;
+    while(streamval > 1024.0)
+    {
+        if(level >= 5)
+            break;
+        level++;
+        streamval /= 1024.0;
+    }
+    switch(level)
+    {
+    case 3:
+        snprintf(chrs, 15, "%.2f GB", streamval);
+        break;
+    case 4:
+        snprintf(chrs, 15, "%.2f TB", streamval);
+        break;
+    case 5:
+        snprintf(chrs, 15, "%.2f PB", streamval);
+        break;
+    case 2:
+        snprintf(chrs, 15, "%.2f MB", streamval);
+        break;
+    case 1:
+        snprintf(chrs, 15, "%.2f KB", streamval);
+        break;
+    case 0:
+        snprintf(chrs, 15, "%.2f B", streamval);
+        break;
+    }
+    return std::string(chrs);
+}
 
-void simpleGenerator()
+std::string subInfoToMessage(std::string subinfo)
+{
+    typedef unsigned long long ull;
+    subinfo = replace_all_distinct(subinfo, "; ", "&");
+    std::string retdata, useddata = "N/A", totaldata = "N/A", expirydata = "N/A";
+    std::string upload = getUrlArg(subinfo, "upload"), download = getUrlArg(subinfo, "download"), total = getUrlArg(subinfo, "total"), expire = getUrlArg(subinfo, "expire");
+    ull used = to_number<ull>(upload, 0) + to_number<ull>(download, 0), tot = to_number<ull>(total, 0);
+    time_t expiry = to_number<time_t>(expire, 0);
+    if(used != 0)
+        useddata = intToStream(used);
+    if(tot != 0)
+        totaldata = intToStream(tot);
+    if(expiry != 0)
+    {
+        char buffer[30];
+        struct tm *dt = localtime(&expiry);
+        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", dt);
+        expirydata.assign(buffer);
+    }
+    if(useddata == "N/A" && totaldata == "N/A" && expirydata == "N/A")
+        retdata = "Not Available";
+    else
+        retdata += "Stream Used: " + useddata + " Stream Total: " + totaldata + " Expiry Time: " + expirydata;
+    return retdata;
+}
+
+int simpleGenerator()
 {
     std::cerr<<"\nReading generator configuration...\n";
     std::string config = fileGet("generate.ini"), path, profile, arguments, content;
     if(config.empty())
     {
         std::cerr<<"Generator configuration not found or empty!\n";
-        return;
+        return -1;
     }
 
     INIReader ini;
     if(ini.Parse(config) != INIREADER_EXCEPTION_NONE)
     {
         std::cerr<<"Generator configuration broken! Reason:"<<ini.GetLastError()<<"\n";
-        return;
+        return -2;
     }
     std::cerr<<"Read generator configuration completed.\n\n";
 
     string_array sections = ini.GetSections();
+    if(gen_profile.size())
+    {
+        std::cerr<<"Generating with specific artifacts: \""<<gen_profile<<"\"...\n";
+        string_array targets = split(gen_profile, ","), new_targets;
+        for(std::string &x : targets)
+        {
+            x = trim(x);
+            if(std::find(sections.cbegin(), sections.cend(), x) != sections.cend())
+                new_targets.emplace_back(x);
+            else
+            {
+                std::cerr<<"Artifact \""<<x<<"\" not found in generator settings!\n";
+                return -3;
+            }
+        }
+        sections = new_targets;
+        sections.shrink_to_fit();
+    }
+    else
+        std::cerr<<"Generating all artifacts...\n";
+
     string_multimap allItems;
     std::string dummy_str;
-    std::map<std::string, std::string> dummy_map;
+    std::map<std::string, std::string> headers;
     int ret_code = 200;
     for(std::string &x : sections)
     {
@@ -1734,10 +1819,37 @@ void simpleGenerator()
         if(ini.ItemExist("profile"))
         {
             profile = ini.Get("profile");
-            content = getProfile("name=" + UrlEncode(profile) + "&token=" + access_token + "&expand=true", dummy_str, &ret_code, dummy_map);
+            content = getProfile("name=" + UrlEncode(profile) + "&token=" + access_token + "&expand=true", dummy_str, &ret_code, headers);
         }
         else
         {
+            if(ini.GetBool("direct") == true)
+            {
+                std::string url = ini.Get("url");
+                if(fileExist(url))
+                    content = fileGet(url, false);
+                else
+                {
+                    //check for proxy settings
+                    std::string proxy;
+                    if(proxy_subscription == "SYSTEM")
+                        proxy = getSystemProxy();
+                    else if(proxy_subscription == "NONE")
+                        proxy = "";
+                    else
+                        proxy = proxy_subscription;
+                    content = webGet(url, proxy);
+                }
+                if(content.empty())
+                {
+                    std::cerr<<"Artifact '"<<x<<"' generate ERROR! Please check your link.\n\n";
+                    if(sections.size() == 1)
+                        return -1;
+                }
+                // add UTF-8 BOM
+                fileWrite(path, "\xEF\xBB\xBF" + content, true);
+                continue;
+            }
             ini.GetItems(allItems);
             allItems.emplace("expand", "true");
             for(auto &y : allItems)
@@ -1747,15 +1859,27 @@ void simpleGenerator()
                 arguments += y.first + "=" + UrlEncode(y.second) + "&";
             }
             arguments.erase(arguments.size() - 1);
-            content = subconverter(arguments, dummy_str, &ret_code, dummy_map);
+            content = subconverter(arguments, dummy_str, &ret_code, headers);
         }
         if(ret_code != 200)
         {
             std::cerr<<"Artifact '"<<x<<"' generate ERROR! Reason: "<<content<<"\n\n";
+            if(sections.size() == 1)
+                return -1;
             continue;
         }
         fileWrite(path, content, true);
+        for(auto &y : headers)
+        {
+            if(regMatch(y.first, "(?i)Subscription-UserInfo"))
+            {
+                std::cerr<<"User Info for artifact '"<<x<<"': "<<subInfoToMessage(y.second)<<"\n";
+                break;
+            }
+        }
         std::cerr<<"Artifact '"<<x<<"' generate SUCCESS!\n\n";
+        eraseElements(headers);
     }
     std::cerr<<"All artifact generated. Exiting...\n";
+    return 0;
 }

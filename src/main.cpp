@@ -9,7 +9,7 @@
 #include "socket.h"
 #include "webget.h"
 
-extern std::string pref_path, access_token, listen_address;
+extern std::string pref_path, access_token, listen_address, gen_profile;
 extern bool api_mode, generator_mode, cfw_child_process, update_ruleset_on_request;
 extern int listen_port, max_concurrent_threads, max_pending_connections;
 extern string_array rulesets;
@@ -60,6 +60,8 @@ void chkArg(int argc, char *argv[])
             pref_path.assign(argv[++i]);
         else if(strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--gen") == 0)
             generator_mode = true;
+        else if(strcmp(argv[i], "--artifact") == 0)
+            gen_profile.assign(argv[++i]);
     }
 }
 
@@ -85,9 +87,10 @@ int main(int argc, char *argv[])
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(1, 1), &wsaData) != 0)
     {
-        fprintf(stderr, "WSAStartup failed.\n");
+        std::cerr<<"WSAStartup failed.\n";
         return 1;
     }
+    UINT origcp = GetConsoleOutputCP();
     SetConsoleOutputCP(65001);
 #else
     signal(SIGPIPE, SIG_IGN);
@@ -114,8 +117,11 @@ int main(int argc, char *argv[])
 
     if(generator_mode)
     {
-        simpleGenerator();
-        return 0;
+        int retVal = simpleGenerator();
+#ifdef _WIN32
+        SetConsoleOutputCP(origcp);
+#endif // _WIN32
+        return retVal;
     }
 
     append_response("GET", "/", "text/plain", [](RESPONSE_CALLBACK_ARGS) -> std::string
